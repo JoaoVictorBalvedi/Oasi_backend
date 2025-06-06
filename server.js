@@ -2,6 +2,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const dbPool = require('./db');
 
 const app = express();
@@ -24,6 +26,90 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
+
+// Rota para REGISTRAR um novo usuário
+app.post('/api/auth/register', async (req, res) => {
+  const { nome, email, senha, telefone } = req.body;
+
+  if (!nome || !email || !senha) {
+    return res.status(400).json({ message: 'Nome, email e senha são obrigatórios.' });
+  }
+
+  try {
+    // 1. Verificar se o email já existe
+    const [userExists] = await dbPool.query('SELECT id FROM usuarios WHERE email = ?', [email]);
+    if (userExists.length > 0) {
+      return res.status(409).json({ message: 'Este email já está cadastrado.' });
+    }
+
+    // 2. Criar o hash da senha
+    const salt = await bcrypt.genSalt(10);
+    const senha_hash = await bcrypt.hash(senha, salt);
+
+    // 3. Inserir o novo usuário no banco de dados
+    const [result] = await dbPool.query(
+      'INSERT INTO usuarios (nome, email, senha_hash, telefone) VALUES (?, ?, ?, ?)',
+      [nome, email, senha_hash, telefone]
+    );
+
+    res.status(201).json({ message: 'Usuário cadastrado com sucesso!', userId: result.insertId });
+
+  } catch (error) {
+    console.error('Erro no registro:', error);
+    res.status(500).json({ message: 'Erro ao registrar usuário.' });
+  }
+});
+
+
+// Rota para LOGAR um usuário
+app.post('/api/auth/login', async (req, res) => {
+  const { email, senha } = req.body;
+
+  if (!email || !senha) {
+    return res.status(400).json({ message: 'Email e senha são obrigatórios.' });
+  }
+
+  try {
+    // 1. Encontrar o usuário pelo email
+    const [users] = await dbPool.query('SELECT * FROM usuarios WHERE email = ?', [email]);
+    if (users.length === 0) {
+      return res.status(401).json({ message: 'Credenciais inválidas.' }); // Mensagem genérica por segurança
+    }
+    const user = users[0];
+
+    // 2. Comparar a senha fornecida com o hash salvo no banco
+    const isMatch = await bcrypt.compare(senha, user.senha_hash);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Credenciais inválidas.' }); // Mensagem genérica
+    }
+
+    // 3. Se a senha estiver correta, criar o token JWT
+    const payload = {
+      userId: user.id,
+      nome: user.nome,
+      // Não inclua informações sensíveis no payload
+    };
+
+    const token = jwt.sign(payload, process.env.JWT_SECRET, {
+      expiresIn: '1d' // Token expira em 1 dia (ex: '1h', '7d')
+    });
+
+    // 4. Enviar o token e os dados básicos do usuário para o frontend
+    res.json({
+      message: 'Login bem-sucedido!',
+      token,
+      user: {
+        id: user.id,
+        nome: user.nome,
+        email: user.email,
+      }
+    });
+
+  } catch (error) {
+    console.error('Erro no login:', error);
+    res.status(500).json({ message: 'Erro ao fazer login.' });
+  }
+});
 
 // NOVO: Rota para CADASTRAR um novo produto
 app.post('/api/products', async (req, res) => {
