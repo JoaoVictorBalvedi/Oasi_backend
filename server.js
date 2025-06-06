@@ -303,6 +303,35 @@ app.post('/api/carts/:cartId/products', async (req, res) => {
     }
   });
 
+// Rota para CRIAR um novo carrinho
+app.post('/api/carts', async (req, res) => {
+  const { nome, proposito, id_usuario } = req.body;
+
+  if (!nome || !id_usuario) {
+    return res.status(400).json({ message: 'Nome do carrinho e ID do usuário são obrigatórios.' });
+  }
+
+  try {
+    const [result] = await dbPool.query(
+      'INSERT INTO carrinhos (nome, proposito, id_usuario) VALUES (?, ?, ?)',
+      [nome, proposito, id_usuario]
+    );
+
+    res.status(201).json({
+      message: 'Carrinho criado com sucesso!',
+      id: result.insertId,
+      nome,
+      proposito,
+      id_usuario
+    });
+  } catch (error) {
+    console.error('Erro ao criar carrinho:', error);
+    if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+      return res.status(404).json({ message: 'Usuário não encontrado.' });
+    }
+    res.status(500).json({ message: 'Erro ao criar carrinho.' });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Servidor backend rodando na porta ${PORT}`);
