@@ -610,6 +610,32 @@ app.delete('/api/products/:id', async (req, res) => {
   }
 });
 
+// Rota para buscar dados de sustentabilidade do usuário
+app.get('/api/users/:id/sustentabilidade', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await dbPool.query('SELECT arvores_plantadas, pontos_verdes, impacto_kg_co2 FROM usuarios WHERE id = ?', [id]);
+    if (rows.length === 0) return res.status(404).json({ message: 'Usuário não encontrado.' });
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Erro ao buscar sustentabilidade:', error);
+    res.status(500).json({ message: 'Erro ao buscar dados de sustentabilidade.' });
+  }
+});
+
+// Rota para plantar árvore (incrementa árvores, pontos e impacto)
+app.post('/api/users/:id/plantar-arvore', async (req, res) => {
+  const { id } = req.params;
+  try {
+    // Para cada árvore, soma 10 pontos e 2kg de CO2 economizados (exemplo)
+    await dbPool.query('UPDATE usuarios SET arvores_plantadas = arvores_plantadas + 1, pontos_verdes = pontos_verdes + 10, impacto_kg_co2 = impacto_kg_co2 + 2 WHERE id = ?', [id]);
+    res.json({ message: 'Árvore plantada! Pontos e impacto atualizados.' });
+  } catch (error) {
+    console.error('Erro ao plantar árvore:', error);
+    res.status(500).json({ message: 'Erro ao plantar árvore.' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor backend rodando na porta ${PORT}`);
   // ... outras mensagens de log ...
