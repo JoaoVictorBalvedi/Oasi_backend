@@ -26,6 +26,20 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
+// Rota para buscar um produto específico por ID
+app.get('/api/products/:id', async (req, res) => {
+  const productId = req.params.id;
+  try {
+    const [rows] = await dbPool.query('SELECT * FROM produtos WHERE id = ?', [productId]);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Produto não encontrado.' });
+    }
+    res.json(rows[0]);
+  } catch (error) {
+    console.error(`Erro ao buscar produto ${productId}:`, error);
+    res.status(500).json({ message: 'Erro ao buscar dados do produto.' });
+  }
+});
 
 // Rota para REGISTRAR um novo usuário
 app.post('/api/auth/register', async (req, res) => {
@@ -170,9 +184,12 @@ app.get('/api/users/:userId/carts', async (req, res) => {
     const { userId } = req.params;
     try {
       // Buscamos os carrinhos do usuário, ordenados pelo mais recente
-      // No futuro, poderíamos adicionar contagem de itens ou valor total aqui com um JOIN ou subquery.
+      // Garantimos que todos os carrinhos sejam retornados, mesmo os vazios
       const [rows] = await dbPool.query(
-        'SELECT id, nome, proposito, criado_em FROM carrinhos WHERE id_usuario = ? ORDER BY criado_em DESC',
+        `SELECT c.id, c.nome, c.proposito, c.criado_em 
+         FROM carrinhos c 
+         WHERE c.id_usuario = ? 
+         ORDER BY c.criado_em DESC`,
         [userId]
       );
       res.json(rows);
@@ -213,7 +230,13 @@ app.put('/api/users/:id', async (req, res) => {
 app.get('/api/carts/:cartId/products-details', async (req, res) => {
     const { cartId } = req.params;
     try {
-      // Query para buscar produtos em um carrinho, incluindo detalhes do produto e a quantidade
+      // Primeiro, verifica se o carrinho existe
+      const [cartRows] = await dbPool.query('SELECT id FROM carrinhos WHERE id = ?', [cartId]);
+      if (cartRows.length === 0) {
+        return res.status(404).json({ message: 'Carrinho não encontrado.' });
+      }
+
+      // Se o carrinho existe, busca os produtos
       const [rows] = await dbPool.query(
         `SELECT 
            p.id, 
@@ -226,10 +249,6 @@ app.get('/api/carts/:cartId/products-details', async (req, res) => {
          WHERE cp.id_carrinho = ?`,
         [cartId]
       );
-      if (rows.length === 0) {
-        // Ainda retorna um array vazio se o carrinho estiver vazio, o que é ok.
-        // Poderia adicionar uma checagem se o carrinho em si existe, se desejado.
-      }
       res.json(rows);
     } catch (error) {
       console.error(`Erro ao buscar produtos detalhados do carrinho ${cartId}:`, error);
@@ -330,6 +349,130 @@ app.post('/api/carts', async (req, res) => {
       return res.status(404).json({ message: 'Usuário não encontrado.' });
     }
     res.status(500).json({ message: 'Erro ao criar carrinho.' });
+  }
+});
+
+// Rota para atualizar a quantidade de um produto no carrinho
+app.put('/api/carts/:cartId/products/:productId', async (req, res) => {
+  const { cartId, productId } = req.params;
+  const { quantidade } = req.body;
+
+  if (!quantidade || isNaN(parseInt(quantidade)) || parseInt(quantidade) <= 0) {
+    return res.status(400).json({ message: 'Quantidade inválida.' });
+  }
+
+  const conn = await dbPool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    // Verifica se o produto existe no carrinho
+    const [existingEntry] = await conn.query(
+      'SELECT quantidade FROM carrinho_produtos WHERE id_carrinho = ? AND id_produto = ?',
+      [cartId, productId]
+    );
+
+    if (existingEntry.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ message: 'Produto não encontrado no carrinho.' });
+    }
+
+    // Atualiza a quantidade
+    await conn.query(
+      'UPDATE carrinho_produtos SET quantidade = ? WHERE id_carrinho = ? AND id_produto = ?',
+      [parseInt(quantidade), cartId, productId]
+    );
+
+    await conn.commit();
+    res.json({ 
+      message: 'Quantidade atualizada com sucesso!', 
+      id_carrinho: cartId, 
+      id_produto: productId, 
+      quantidade: parseInt(quantidade) 
+    });
+  } catch (error) {
+    await conn.rollback();
+    console.error(`Erro ao atualizar quantidade do produto ${productId} no carrinho ${cartId}:`, error);
+    res.status(500).json({ message: 'Erro ao atualizar quantidade do produto.' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// Rota para remover um produto do carrinho
+app.delete('/api/carts/:cartId/products/:productId', async (req, res) => {
+  const { cartId, productId } = req.params;
+  const token = req.headers.authorization?.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ message: 'Token não fornecido.' });
+  }
+
+  const conn = await dbPool.getConnection();
+
+  try {
+    // Verifica o token e obtém o ID do usuário
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.userId;
+
+    await conn.beginTransaction();
+
+    // Verifica se o carrinho pertence ao usuário
+    const [cartRows] = await conn.query(
+      'SELECT id, id_usuario FROM carrinhos WHERE id = ?',
+      [cartId]
+    );
+
+    if (cartRows.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ message: 'Carrinho não encontrado.' });
+    }
+
+    if (cartRows[0].id_usuario !== userId) {
+      await conn.rollback();
+      return res.status(403).json({ message: 'Carrinho não pertence ao usuário.' });
+    }
+
+    // Verifica se o produto existe no carrinho
+    const [existingEntry] = await conn.query(
+      'SELECT quantidade FROM carrinho_produtos WHERE id_carrinho = ? AND id_produto = ?',
+      [cartId, productId]
+    );
+
+    if (existingEntry.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ message: 'Produto não encontrado no carrinho.' });
+    }
+
+    // Remove o produto do carrinho
+    await conn.query(
+      'DELETE FROM carrinho_produtos WHERE id_carrinho = ? AND id_produto = ?',
+      [cartId, productId]
+    );
+
+    // Busca os produtos restantes no carrinho
+    const [remainingProducts] = await conn.query(
+      'SELECT COUNT(*) as count FROM carrinho_produtos WHERE id_carrinho = ?',
+      [cartId]
+    );
+
+    await conn.commit();
+
+    res.json({ 
+      message: 'Produto removido do carrinho com sucesso!', 
+      id_carrinho: cartId, 
+      id_produto: productId,
+      produtos_restantes: remainingProducts[0].count
+    });
+  } catch (error) {
+    await conn.rollback();
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Token inválido.' });
+    }
+    console.error(`Erro ao remover produto ${productId} do carrinho ${cartId}:`, error);
+    res.status(500).json({ message: 'Erro ao remover produto do carrinho.' });
+  } finally {
+    if (conn) conn.release();
   }
 });
 

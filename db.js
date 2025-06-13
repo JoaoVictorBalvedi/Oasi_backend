@@ -35,7 +35,7 @@ async function createTables() {
         id_carrinho INT NOT NULL,
         id_produto INT NOT NULL,
         quantidade INT NOT NULL DEFAULT 1,
-        FOREIGN KEY (id_carrinho) REFERENCES carrinhos(id) ON DELETE CASCADE,
+        FOREIGN KEY (id_carrinho) REFERENCES carrinhos(id),
         FOREIGN KEY (id_produto) REFERENCES produtos(id),
         UNIQUE KEY unique_cart_product (id_carrinho, id_produto)
       )
