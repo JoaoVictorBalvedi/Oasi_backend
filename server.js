@@ -476,6 +476,37 @@ app.delete('/api/carts/:cartId/products/:productId', async (req, res) => {
   }
 });
 
+// Rotas de comentários de produtos
+app.get('/api/products/:id/comentarios', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await dbPool.query(
+      `SELECT c.*, u.nome as usuario_nome FROM comentarios c JOIN usuarios u ON c.id_usuario = u.id WHERE c.id_produto = ? ORDER BY c.data DESC`,
+      [id]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Erro ao buscar comentários:', error);
+    res.status(500).json({ message: 'Erro ao buscar comentários.' });
+  }
+});
+
+app.post('/api/products/:id/comentarios', async (req, res) => {
+  const { id } = req.params;
+  const { id_usuario, texto } = req.body;
+  if (!id_usuario || !texto) return res.status(400).json({ message: 'Usuário e texto obrigatórios.' });
+  try {
+    await dbPool.query(
+      `INSERT INTO comentarios (id_produto, id_usuario, texto) VALUES (?, ?, ?)`,
+      [id, id_usuario, texto]
+    );
+    res.json({ message: 'Comentário adicionado com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao adicionar comentário:', error);
+    res.status(500).json({ message: 'Erro ao adicionar comentário.' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor backend rodando na porta ${PORT}`);
   // ... outras mensagens de log ...
