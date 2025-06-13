@@ -507,6 +507,109 @@ app.post('/api/products/:id/comentarios', async (req, res) => {
   }
 });
 
+// Rotas de eventos
+app.get('/api/eventos', async (req, res) => {
+  try {
+    const [rows] = await dbPool.query('SELECT * FROM eventos ORDER BY data ASC');
+    res.json(rows);
+  } catch (error) {
+    console.error('Erro ao buscar eventos:', error);
+    res.status(500).json({ message: 'Erro ao buscar eventos.' });
+  }
+});
+
+app.get('/api/eventos/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await dbPool.query('SELECT * FROM eventos WHERE id = ?', [id]);
+    if (rows.length === 0) return res.status(404).json({ message: 'Evento não encontrado.' });
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Erro ao buscar evento:', error);
+    res.status(500).json({ message: 'Erro ao buscar evento.' });
+  }
+});
+
+// Chat do evento
+app.get('/api/eventos/:id/mensagens', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await dbPool.query(
+      `SELECT m.*, u.nome as usuario_nome FROM evento_mensagens m JOIN usuarios u ON m.id_usuario = u.id WHERE m.id_evento = ? ORDER BY m.data ASC`,
+      [id]
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error('Erro ao buscar mensagens do evento:', error);
+    res.status(500).json({ message: 'Erro ao buscar mensagens.' });
+  }
+});
+
+app.post('/api/eventos/:id/mensagens', async (req, res) => {
+  const { id } = req.params;
+  const { id_usuario, texto } = req.body;
+  if (!id_usuario || !texto) return res.status(400).json({ message: 'Usuário e texto obrigatórios.' });
+  try {
+    await dbPool.query(
+      `INSERT INTO evento_mensagens (id_evento, id_usuario, texto) VALUES (?, ?, ?)`,
+      [id, id_usuario, texto]
+    );
+    res.json({ message: 'Mensagem enviada com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao adicionar mensagem:', error);
+    res.status(500).json({ message: 'Erro ao adicionar mensagem.' });
+  }
+});
+
+// Rota para criar novo evento
+app.post('/api/eventos', async (req, res) => {
+  const { nome, data, local, descricao } = req.body;
+  if (!nome || !data || !local || !descricao) {
+    return res.status(400).json({ message: 'Todos os campos são obrigatórios.' });
+  }
+  try {
+    await dbPool.query(
+      'INSERT INTO eventos (nome, data, local, descricao) VALUES (?, ?, ?, ?)',
+      [nome, data, local, descricao]
+    );
+    res.json({ message: 'Evento criado com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao criar evento:', error);
+    res.status(500).json({ message: 'Erro ao criar evento.' });
+  }
+});
+
+// Editar produto
+app.put('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  const { nome, preco, nivel_sustentabilidade, descricao, imagem_url } = req.body;
+  if (!nome || preco === undefined) {
+    return res.status(400).json({ message: 'Nome e preço são obrigatórios.' });
+  }
+  try {
+    await dbPool.query(
+      'UPDATE produtos SET nome = ?, preco = ?, nivel_sustentabilidade = ?, descricao = ?, imagem_url = ? WHERE id = ?',
+      [nome, preco, nivel_sustentabilidade, descricao, imagem_url, id]
+    );
+    res.json({ message: 'Produto atualizado com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao editar produto:', error);
+    res.status(500).json({ message: 'Erro ao editar produto.' });
+  }
+});
+
+// Remover produto
+app.delete('/api/products/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await dbPool.query('DELETE FROM produtos WHERE id = ?', [id]);
+    res.json({ message: 'Produto removido com sucesso!' });
+  } catch (error) {
+    console.error('Erro ao remover produto:', error);
+    res.status(500).json({ message: 'Erro ao remover produto.' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor backend rodando na porta ${PORT}`);
   // ... outras mensagens de log ...
